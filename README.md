@@ -1,2 +1,2 @@
 # QuickElement
-A quick to create HTML elements using TypeScript or JavaScript.
+A quick way to create HTML elements using TypeScript or JavaScript.
