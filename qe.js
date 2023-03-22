@@ -8,7 +8,7 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
     return to.concat(ar || Array.prototype.slice.call(from));
 };
 (function () {
-    var version = '1.1.1';
+    var version = '1.2.0';
     var returnVersion = function () { return version; };
     var nullFunction = function () { return void (0); };
     var tagArgsToString = function (strings) {
@@ -200,13 +200,27 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
     };
     var fromCode = function (code) {
         var accumulated = [];
+        var consume = function () {
+            var e = [];
+            for (var _i = 0; _i < arguments.length; _i++) {
+                e[_i] = arguments[_i];
+            }
+            return accumulated.push.apply(accumulated, e);
+        };
         code(function () {
             var e = [];
             for (var _i = 0; _i < arguments.length; _i++) {
                 e[_i] = arguments[_i];
             }
-            accumulated.push.apply(accumulated, e);
+            return consume.apply(void 0, e);
         });
+        accumulated.push(function (element) { return consume = function () {
+            var e = [];
+            for (var _i = 0; _i < arguments.length; _i++) {
+                e[_i] = arguments[_i];
+            }
+            return fromElement(element)(e);
+        }; });
         return accumulated;
     };
     var createElement = function (tagName) { return fromElement(document.createElement(tagName)); };
@@ -394,7 +408,7 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
                     return function () { return function () {
                     }; };
             }
-        }
+        },
     });
     var queryDocument = function () {
         var args = [];
@@ -410,6 +424,22 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
         }
         return fromQuery.apply(void 0, __spreadArray([target.e], args, false));
     }; };
+    if (!Array.prototype.flat) {
+        Array.prototype.flat = function (depth) {
+            if (typeof depth === 'undefined') {
+                depth = 1;
+            }
+            var flatten = function (array, depth) {
+                if (depth < 1) {
+                    return array.slice();
+                }
+                return array.reduce(function (accumulator, currentValue) {
+                    return accumulator.concat(Array.isArray(currentValue) ? flatten(currentValue, depth - 1) : currentValue);
+                }, []);
+            };
+            return flatten(this, depth);
+        };
+    }
     var queryElements = function (targets) { return function () {
         var args = [];
         for (var _i = 0; _i < arguments.length; _i++) {
@@ -941,7 +971,7 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
                                 args[_i] = arguments[_i];
                             }
                             var query = {
-                                typedItemQueue: []
+                                typedItemQueue: [],
                             };
                             actionQueue.push(queryToAction.apply(void 0, __spreadArray([query], args, false)));
                             return createQuickElementArrayProxy(query.typedItemQueue, function () { var _a; return (_a = query.result) === null || _a === void 0 ? void 0 : _a.a; });
@@ -1001,7 +1031,7 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
                                 args[_i] = arguments[_i];
                             }
                             var query = {
-                                typedItemQueue: []
+                                typedItemQueue: [],
                             };
                             typedItemQueue.push({
                                 type: 'observer',
@@ -1093,7 +1123,7 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
                                 actionQueues[tagName] = [];
                             }
                             var query = {
-                                typedItemQueue: []
+                                typedItemQueue: [],
                             };
                             actionQueues[tagName].push([queryToAction.apply(void 0, __spreadArray([query], args, false))]);
                             if (!documentReadyEventListenerAdded) {
@@ -1137,5 +1167,5 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
     qeProperties.p = elementProperty;
     qeProperties.prop = elementProperty;
     qeProperties.property = elementProperty;
-    qeProperties["null"] = nullFunction;
+    qeProperties.null = nullFunction;
 })();

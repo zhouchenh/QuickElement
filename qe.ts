@@ -6,7 +6,7 @@
     ((...arg: any[]) => QuickElementArray<E>)
     & { a: QuickElement<E>[]; query: QueryFunction; }
   type QueryObject = { typedItemQueue: { type: 'observer' | 'action'; item: any; }[]; result?: QuickElementArray<any>; }
-  const version = '1.1.1'
+  const version = '1.2.0'
   const returnVersion = () => version;
   const nullFunction = () => void (0);
   const tagArgsToString: TagFunction<string> = (strings: string[], ...args: unknown[]): string => {
@@ -157,9 +157,9 @@
   }
   const fromCode = (code: (a: (...e: any[]) => void) => void): any[] => {
     const accumulated = [];
-    code((...e: any[]) => {
-      accumulated.push(...e);
-    });
+    let consume: (...e: any[]) => void = (...e: any[]) => accumulated.push(...e);
+    code((...e: any[]) => consume(...e));
+    accumulated.push(element => consume = (...e: any[]) => fromElement(element)(e));
     return accumulated;
   }
   const createElement = <K extends keyof HTMLElementTagNameMap>(tagName: K): QuickElement<HTMLElementTagNameMap[K]> => fromElement(document.createElement(tagName));
@@ -290,7 +290,23 @@
   });
   const queryDocument = (...args: any[]): QuickElementArray<any> => fromQuery(document, ...args);
   const queryElement = <E extends Element>(target: QuickElement<E>): (...args: any[]) => QuickElementArray<any> => (...args: any[]) => fromQuery(target.e, ...args);
-  const queryElements = <E extends Element>(targets: QuickElementArray<E>): (...args: any[]) => QuickElementArray<any> => (...args: any[]) => fromQuickElements(targets.a.map(e => fromQuery(e.e, ...args).a).flat(1));
+  if (!(Array.prototype as any).flat) {
+    (Array.prototype as any).flat = function(depth: number) {
+      if (typeof depth === 'undefined') {
+        depth = 1;
+      }
+      const flatten = (array, depth) => {
+        if (depth < 1) {
+          return array.slice();
+        }
+        return array.reduce((accumulator, currentValue) => {
+          return accumulator.concat(Array.isArray(currentValue) ? flatten(currentValue, depth - 1) : currentValue);
+        }, []);
+      };
+      return flatten(this, depth);
+    };
+  }
+  const queryElements = <E extends Element>(targets: QuickElementArray<E>): (...args: any[]) => QuickElementArray<any> => (...args: any[]) => fromQuickElements((targets.a.map(e => fromQuery(e.e, ...args).a) as any).flat(1));
   const objectAssignProperty = <T>(o: T, p: PropertyKey, value: any) => {
     if (typeof window.Object?.defineProperty === 'function') {
       Object.defineProperty(o, p, {value: value});
