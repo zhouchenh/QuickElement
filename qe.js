@@ -8,7 +8,7 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
     return to.concat(ar || Array.prototype.slice.call(from));
 };
 (function () {
-    var version = '1.2.0';
+    var version = '1.3.0';
     var returnVersion = function () { return version; };
     var nullFunction = function () { return void (0); };
     var tagArgsToString = function (strings) {
@@ -30,8 +30,11 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
     var isTagFunctionArgs = function (args) {
         return args.length > 0 && Array.isArray(args[0]) && args[0].every(function (v) { return typeof v === 'string'; });
     };
-    var isQuickElement = function (e) { return typeof e === 'function' && typeof e.e !== 'undefined'; };
-    var isQuickElementArray = function (a) { return typeof a === 'function' && typeof a.a !== 'undefined'; };
+    var isQuickElement = function (e) { return typeof e === 'function' && typeof e.e === 'object'; };
+    var isQuickElementArray = function (a) { return typeof a === 'function' && Array.isArray(a.a); };
+    var isPrimitiveQuickAction = function (qa) { return typeof qa === 'function' && qa.__QE_QA__ === qa; };
+    var isProxiedQuickAction = function (qa) { return typeof qa === 'function' && qa.__QE_QA_PROXY__ === qa; };
+    var isQuickAction = function (qa) { return isProxiedQuickAction(qa) ? qa['__QE_QA_PROXY_IS_QUICK_ACTION__'] === true : isPrimitiveQuickAction(qa); };
     var editElement = function (target) {
         var e = [];
         for (var _i = 1; _i < arguments.length; _i++) {
@@ -528,6 +531,142 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
         }
         return [target, propertyPath[n]];
     };
+    var chainAction = (function () {
+        var createChainActionProxy = function (action, contextObject) {
+            var targetFunction = function () { return void (0); };
+            targetFunction.chainedAction = action;
+            targetFunction.contextObject = contextObject;
+            // @ts-ignore
+            targetFunction.proxy = new Proxy(targetFunction, {
+                apply: function (target, thisArg, argArray) {
+                    if (isQuickAction(targetFunction.contextObject)) {
+                        targetFunction.chainedAction.apply(thisArg, argArray);
+                    }
+                    var newContextObject = targetFunction.contextObject.apply(thisArg, argArray);
+                    if (typeof newContextObject === 'undefined' || newContextObject === null) {
+                        return newContextObject;
+                    }
+                    return createChainActionProxy(targetFunction.chainedAction, newContextObject);
+                },
+                get: function (target, p, receiver) {
+                    var _this = this;
+                    switch (p) {
+                        case 'apply':
+                            return function (thisArg, argsArray) { return _this.apply(target, thisArg, argsArray); };
+                        case 'bind':
+                            return function (thisArg) {
+                                var prependedArgsArray = [];
+                                for (var _i = 1; _i < arguments.length; _i++) {
+                                    prependedArgsArray[_i - 1] = arguments[_i];
+                                }
+                                return function () {
+                                    var argsArray = [];
+                                    for (var _i = 0; _i < arguments.length; _i++) {
+                                        argsArray[_i] = arguments[_i];
+                                    }
+                                    return _this.apply(target, thisArg, __spreadArray(__spreadArray([], prependedArgsArray, true), argsArray, true));
+                                };
+                            };
+                        case 'call':
+                            return function (thisArg) {
+                                var argsArray = [];
+                                for (var _i = 1; _i < arguments.length; _i++) {
+                                    argsArray[_i - 1] = arguments[_i];
+                                }
+                                return _this.apply(target, thisArg, argsArray);
+                            };
+                        case 'toString':
+                            return function () { return _this.toString(); };
+                        // @ts-ignore
+                        case Symbol.toPrimitive:
+                            return function (hint) { return hint === 'number' ? NaN : _this.get(target, 'toString', receiver)(); };
+                        case '__QE_QA__':
+                            return targetFunction.proxy;
+                        case '__QE_QA_PROXY__':
+                            return targetFunction.proxy;
+                        case '__QE_QA_PROXY_IS_QUICK_ACTION__':
+                            return isQuickAction(targetFunction.contextObject);
+                        default:
+                            var newContextObject = targetFunction.contextObject[p];
+                            if (typeof newContextObject === 'undefined' || newContextObject === null) {
+                                return newContextObject;
+                            }
+                            return createChainActionProxy(targetFunction.chainedAction, newContextObject);
+                    }
+                }
+            });
+            return targetFunction.proxy;
+        };
+        return function (action) {
+            var contextPath = [];
+            for (var _i = 1; _i < arguments.length; _i++) {
+                contextPath[_i - 1] = arguments[_i];
+            }
+            var targetFunction = function () { return void (0); };
+            targetFunction.action = action;
+            targetFunction.baseObject = quickElement;
+            if (contextPath.length > 0) {
+                var prop = objectProperty.apply(void 0, __spreadArray([targetFunction.baseObject], contextPath, false));
+                if (!prop) {
+                    return undefined;
+                }
+                targetFunction.contextObject = prop[0][prop[1]];
+            }
+            else {
+                targetFunction.contextObject = targetFunction.baseObject;
+            }
+            targetFunction.createProxy = createChainActionProxy;
+            // @ts-ignore
+            targetFunction.proxy = new Proxy(targetFunction, {
+                apply: function (target, thisArg, argArray) {
+                    return action.apply(thisArg, argArray);
+                },
+                get: function (target, p, receiver) {
+                    var _this = this;
+                    switch (p) {
+                        case 'apply':
+                            return function (thisArg, argsArray) { return _this.apply(target, thisArg, argsArray); };
+                        case 'bind':
+                            return function (thisArg) {
+                                var prependedArgsArray = [];
+                                for (var _i = 1; _i < arguments.length; _i++) {
+                                    prependedArgsArray[_i - 1] = arguments[_i];
+                                }
+                                return function () {
+                                    var argsArray = [];
+                                    for (var _i = 0; _i < arguments.length; _i++) {
+                                        argsArray[_i] = arguments[_i];
+                                    }
+                                    return _this.apply(target, thisArg, __spreadArray(__spreadArray([], prependedArgsArray, true), argsArray, true));
+                                };
+                            };
+                        case 'call':
+                            return function (thisArg) {
+                                var argsArray = [];
+                                for (var _i = 1; _i < arguments.length; _i++) {
+                                    argsArray[_i - 1] = arguments[_i];
+                                }
+                                return _this.apply(target, thisArg, argsArray);
+                            };
+                        case 'toString':
+                            return function () { return _this.toString(); };
+                        // @ts-ignore
+                        case Symbol.toPrimitive:
+                            return function (hint) { return hint === 'number' ? NaN : _this.get(target, 'toString', receiver)(); };
+                        case '__QE_QA__':
+                            return targetFunction.proxy;
+                        case '__QE_QA_PROXY__':
+                            return undefined;
+                        case '_':
+                            return targetFunction.createProxy(targetFunction.action, targetFunction.baseObject);
+                        default:
+                            return targetFunction.createProxy(targetFunction.action, targetFunction.contextObject)[p];
+                    }
+                }
+            });
+            return targetFunction.proxy;
+        };
+    })();
     var getObjectProperty = function (obj) {
         var propertyPath = [];
         for (var _i = 1; _i < arguments.length; _i++) {
@@ -573,7 +712,7 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
         return new Proxy(targetFunction, {
             apply: function (target, thisArg, argArray) {
                 if (argArray.length === 1 && typeof argArray[0] === 'function') {
-                    return function (e) { return argArray[0](getObjectProperty.apply(void 0, __spreadArray([e], targetFunction.targetPath, false))); };
+                    return chainAction.apply(void 0, __spreadArray([function (e) { return argArray[0](getObjectProperty.apply(void 0, __spreadArray([e], targetFunction.targetPath, false))); }, 'property', 'get'], targetPath.slice(0, -1), false));
                 }
                 return function () {
                 };
@@ -627,10 +766,10 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
         return new Proxy(targetFunction, {
             apply: function (target, thisArg, argArray) {
                 if (isTagFunctionArgs(argArray)) {
-                    return function (e) { return setObjectProperty.apply(void 0, __spreadArray([e, tagArgsToString.apply(void 0, __spreadArray([argArray[0]], argArray.slice(1), false))], targetFunction.targetPath, false)); };
+                    return chainAction.apply(void 0, __spreadArray([function (e) { return setObjectProperty.apply(void 0, __spreadArray([e, tagArgsToString.apply(void 0, __spreadArray([argArray[0]], argArray.slice(1), false))], targetFunction.targetPath, false)); }, 'property', 'set'], targetPath.slice(0, -1), false));
                 }
                 if (argArray.length === 1) {
-                    return function (e) { return setObjectProperty.apply(void 0, __spreadArray([e, argArray[0]], targetFunction.targetPath, false)); };
+                    return chainAction.apply(void 0, __spreadArray([function (e) { return setObjectProperty.apply(void 0, __spreadArray([e, argArray[0]], targetFunction.targetPath, false)); }, 'property', 'set'], targetPath.slice(0, -1), false));
                 }
                 return function () {
                 };
@@ -684,9 +823,9 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
         return new Proxy(targetFunction, {
             apply: function (target, thisArg, argArray) {
                 if (isTagFunctionArgs(argArray)) {
-                    return function (e) { return callObjectProperty.apply(void 0, __spreadArray([e, [tagArgsToString.apply(void 0, __spreadArray([argArray[0]], argArray.slice(1), false))]], targetFunction.targetPath, false)); };
+                    return chainAction.apply(void 0, __spreadArray([function (e) { return callObjectProperty.apply(void 0, __spreadArray([e, [tagArgsToString.apply(void 0, __spreadArray([argArray[0]], argArray.slice(1), false))]], targetFunction.targetPath, false)); }, 'property', 'callFunc'], targetPath.slice(0, -1), false));
                 }
-                return function (e) { return callObjectProperty.apply(void 0, __spreadArray([e, argArray], targetFunction.targetPath, false)); };
+                return chainAction.apply(void 0, __spreadArray([function (e) { return callObjectProperty.apply(void 0, __spreadArray([e, argArray], targetFunction.targetPath, false)); }, 'property', 'callFunc'], targetPath.slice(0, -1), false));
             },
             get: function (target, p, receiver) {
                 var _this = this;
@@ -727,11 +866,11 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
         });
     };
     var untilTriggered = function (triggerSetter) { return function () {
-        var functions = [];
+        var actions = [];
         for (var _i = 0; _i < arguments.length; _i++) {
-            functions[_i] = arguments[_i];
+            actions[_i] = arguments[_i];
         }
-        return function (e) { return triggerSetter(function () { return functions.forEach(function (f) { return f(e); }); }); };
+        return function (e) { return triggerSetter(function () { return actions.forEach(function (action) { return action(e); }); }); };
     }; };
     var qeProperties = {};
     var elementAddClass = function () {
@@ -739,23 +878,23 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
         for (var _i = 0; _i < arguments.length; _i++) {
             tokens[_i] = arguments[_i];
         }
-        return function (e) {
+        return chainAction(function (e) {
             var _a;
             return (_a = e.classList).add.apply(_a, processClassNames.apply(void 0, tokens));
-        };
+        });
     };
     var elementRemoveClass = function () {
         var tokens = [];
         for (var _i = 0; _i < arguments.length; _i++) {
             tokens[_i] = arguments[_i];
         }
-        return function (e) {
+        return chainAction(function (e) {
             var _a;
             return (_a = e.classList).remove.apply(_a, processClassNames.apply(void 0, tokens));
-        };
+        });
     };
-    var elementGetAttribute = function (qualifiedName, valueConsumer) { return function (e) { return valueConsumer(e.getAttribute(qualifiedName)); }; };
-    var elementSetAttribute = function (qualifiedName, value) { return function (e) { return e.setAttribute(qualifiedName, value); }; };
+    var elementGetAttribute = function (qualifiedName, valueConsumer) { return chainAction(function (e) { return valueConsumer(e.getAttribute(qualifiedName)); }); };
+    var elementSetAttribute = function (qualifiedName, value) { return chainAction(function (e) { return e.setAttribute(qualifiedName, value); }); };
     var elementProperty = (function () {
         var func = function () { return function () { return void (0); }; };
         // @ts-ignore
@@ -1167,5 +1306,5 @@ var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
     qeProperties.p = elementProperty;
     qeProperties.prop = elementProperty;
     qeProperties.property = elementProperty;
-    qeProperties.null = nullFunction;
+    qeProperties.null = chainAction(nullFunction);
 })();

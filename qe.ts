@@ -5,8 +5,9 @@
   type QuickElementArray<E extends Element> =
     ((...arg: any[]) => QuickElementArray<E>)
     & { a: QuickElement<E>[]; query: QueryFunction; }
+  type QuickAction<E extends Element> = (e: E) => void;
   type QueryObject = { typedItemQueue: { type: 'observer' | 'action'; item: any; }[]; result?: QuickElementArray<any>; }
-  const version = '1.2.0'
+  const version = '1.3.0'
   const returnVersion = () => version;
   const nullFunction = () => void (0);
   const tagArgsToString: TagFunction<string> = (strings: string[], ...args: unknown[]): string => {
@@ -24,8 +25,11 @@
   const isTagFunctionArgs = (args: any[]): boolean => {
     return args.length > 0 && Array.isArray(args[0]) && args[0].every(v => typeof v === 'string');
   };
-  const isQuickElement = (e: any): e is QuickElement<any> => typeof e === 'function' && typeof e.e !== 'undefined';
-  const isQuickElementArray = (a: any): a is QuickElementArray<any> => typeof a === 'function' && typeof a.a !== 'undefined';
+  const isQuickElement = (e: any): e is QuickElement<any> => typeof e === 'function' && typeof e.e === 'object';
+  const isQuickElementArray = (a: any): a is QuickElementArray<any> => typeof a === 'function' && Array.isArray(a.a);
+  const isPrimitiveQuickAction = (qa: any): qa is QuickAction<any> => typeof qa === 'function' && qa.__QE_QA__ === qa;
+  const isProxiedQuickAction = (qa: any): qa is QuickAction<any> => typeof qa === 'function' && qa.__QE_QA_PROXY__ === qa;
+  const isQuickAction = (qa: any): qa is QuickAction<any> => isProxiedQuickAction(qa) ? qa['__QE_QA_PROXY_IS_QUICK_ACTION__'] === true : isPrimitiveQuickAction(qa);
   const editElement = <E extends Element>(target: E, ...e: any[]) => {
     const el = e.length;
     let string = '';
@@ -291,7 +295,7 @@
   const queryDocument = (...args: any[]): QuickElementArray<any> => fromQuery(document, ...args);
   const queryElement = <E extends Element>(target: QuickElement<E>): (...args: any[]) => QuickElementArray<any> => (...args: any[]) => fromQuery(target.e, ...args);
   if (!(Array.prototype as any).flat) {
-    (Array.prototype as any).flat = function(depth: number) {
+    (Array.prototype as any).flat = function (depth: number) {
       if (typeof depth === 'undefined') {
         depth = 1;
       }
@@ -358,6 +362,99 @@
     }
     return [target, propertyPath[n]];
   }
+  const chainAction = (<E extends Element>(): (action: QuickAction<E>, ...contextPath: (string | symbol)[]) => any => {
+    const createChainActionProxy = (action: QuickAction<E>, contextObject: any): any => {
+      const targetFunction = () => void (0);
+      targetFunction.chainedAction = action;
+      targetFunction.contextObject = contextObject;
+      // @ts-ignore
+      targetFunction.proxy = new Proxy(targetFunction, {
+        apply(target: any, thisArg: any, argArray: any[]): any {
+          if (isQuickAction(targetFunction.contextObject)) {
+            targetFunction.chainedAction.apply(thisArg, argArray);
+          }
+          const newContextObject = targetFunction.contextObject.apply(thisArg, argArray);
+          if (typeof newContextObject === 'undefined' || newContextObject === null) {
+            return newContextObject;
+          }
+          return createChainActionProxy(targetFunction.chainedAction, newContextObject);
+        },
+        get(target: any, p: string | symbol, receiver: any): any {
+          switch (p) {
+            case 'apply':
+              return (thisArg, argsArray) => this.apply(target, thisArg, argsArray);
+            case 'bind':
+              return (thisArg, ...prependedArgsArray) => (...argsArray) => this.apply(target, thisArg, [...prependedArgsArray, ...argsArray]);
+            case 'call':
+              return (thisArg, ...argsArray) => this.apply(target, thisArg, argsArray);
+            case 'toString':
+              return () => this.toString();
+            // @ts-ignore
+            case Symbol.toPrimitive:
+              return (hint) => hint === 'number' ? NaN : this.get(target, 'toString', receiver)();
+            case '__QE_QA__':
+              return targetFunction.proxy;
+            case '__QE_QA_PROXY__':
+              return targetFunction.proxy;
+            case '__QE_QA_PROXY_IS_QUICK_ACTION__':
+              return isQuickAction(targetFunction.contextObject);
+            default:
+              const newContextObject = targetFunction.contextObject[p]
+              if (typeof newContextObject === 'undefined' || newContextObject === null) {
+                return newContextObject;
+              }
+              return createChainActionProxy(targetFunction.chainedAction, newContextObject);
+          }
+        }
+      });
+      return targetFunction.proxy;
+    };
+    return (action: QuickAction<E>, ...contextPath: (string | symbol)[]): any => {
+      const targetFunction = () => void (0);
+      targetFunction.action = action;
+      targetFunction.baseObject = quickElement;
+      if (contextPath.length > 0) {
+        const prop = objectProperty(targetFunction.baseObject, ...contextPath);
+        if (!prop) {
+          return undefined;
+        }
+        targetFunction.contextObject = prop[0][prop[1]];
+      } else {
+        targetFunction.contextObject = targetFunction.baseObject;
+      }
+      targetFunction.createProxy = createChainActionProxy;
+      // @ts-ignore
+      targetFunction.proxy = new Proxy(targetFunction, {
+        apply(target: any, thisArg: any, argArray: any[]): any {
+          return action.apply(thisArg, argArray);
+        },
+        get(target: any, p: string | symbol, receiver: any): any {
+          switch (p) {
+            case 'apply':
+              return (thisArg, argsArray) => this.apply(target, thisArg, argsArray);
+            case 'bind':
+              return (thisArg, ...prependedArgsArray) => (...argsArray) => this.apply(target, thisArg, [...prependedArgsArray, ...argsArray]);
+            case 'call':
+              return (thisArg, ...argsArray) => this.apply(target, thisArg, argsArray);
+            case 'toString':
+              return () => this.toString();
+            // @ts-ignore
+            case Symbol.toPrimitive:
+              return (hint) => hint === 'number' ? NaN : this.get(target, 'toString', receiver)();
+            case '__QE_QA__':
+              return targetFunction.proxy;
+            case '__QE_QA_PROXY__':
+              return undefined;
+            case '_':
+              return targetFunction.createProxy(targetFunction.action, targetFunction.baseObject);
+            default:
+              return targetFunction.createProxy(targetFunction.action, targetFunction.contextObject)[p];
+          }
+        }
+      });
+      return targetFunction.proxy;
+    }
+  })();
   const getObjectProperty = (obj: object, ...propertyPath: (string | symbol)[]): any => {
     const prop = objectProperty(obj, ...propertyPath);
     if (!prop) {
@@ -386,7 +483,7 @@
     return new Proxy(targetFunction, {
       apply(target: any, thisArg: any, argArray: any[]): (e: object) => void {
         if (argArray.length === 1 && typeof argArray[0] === 'function') {
-          return e => argArray[0](getObjectProperty(e, ...targetFunction.targetPath));
+          return chainAction(e => argArray[0](getObjectProperty(e, ...targetFunction.targetPath)), 'property', 'get', ...targetPath.slice(0, -1));
         }
         return () => {
         };
@@ -417,10 +514,10 @@
     return new Proxy(targetFunction, {
       apply(target: any, thisArg: any, argArray: any[]): (e: object) => void {
         if (isTagFunctionArgs(argArray)) {
-          return e => setObjectProperty(e, tagArgsToString(argArray[0], ...argArray.slice(1)), ...targetFunction.targetPath);
+          return chainAction(e => setObjectProperty(e, tagArgsToString(argArray[0], ...argArray.slice(1)), ...targetFunction.targetPath), 'property', 'set', ...targetPath.slice(0, -1));
         }
         if (argArray.length === 1) {
-          return e => setObjectProperty(e, argArray[0], ...targetFunction.targetPath);
+          return chainAction(e => setObjectProperty(e, argArray[0], ...targetFunction.targetPath), 'property', 'set', ...targetPath.slice(0, -1));
         }
         return () => {
         };
@@ -451,9 +548,9 @@
     return new Proxy(targetFunction, {
       apply(target: any, thisArg: any, argArray: any[]): (e: object) => void {
         if (isTagFunctionArgs(argArray)) {
-          return e => callObjectProperty(e, [tagArgsToString(argArray[0], ...argArray.slice(1))], ...targetFunction.targetPath);
+          return chainAction(e => callObjectProperty(e, [tagArgsToString(argArray[0], ...argArray.slice(1))], ...targetFunction.targetPath), 'property', 'callFunc', ...targetPath.slice(0, -1));
         }
-        return e => callObjectProperty(e, argArray, ...targetFunction.targetPath);
+        return chainAction(e => callObjectProperty(e, argArray, ...targetFunction.targetPath), 'property', 'callFunc', ...targetPath.slice(0, -1));
       },
       get(target: any, p: string | symbol, receiver: any): any {
         switch (p) {
@@ -474,12 +571,12 @@
       }
     });
   }
-  const untilTriggered = <E extends Element>(triggerSetter: (trigger: () => void) => void): (...functions: ((e: E) => void)[]) => (e: E) => void => (...functions: ((e: E) => void)[]) => (e: E) => triggerSetter(() => functions.forEach(f => f(e)));
+  const untilTriggered = <E extends Element>(triggerSetter: (trigger: () => void) => void): (...actions: QuickAction<E>[]) => QuickAction<E> => (...actions: QuickAction<E>[]) => (e: E) => triggerSetter(() => actions.forEach(action => action(e)));
   const qeProperties: any = {};
-  const elementAddClass = <E extends Element>(...tokens: string[]): (e: E) => void => e => e.classList.add(...processClassNames(...tokens));
-  const elementRemoveClass = <E extends Element>(...tokens: string[]): (e: E) => void => e => e.classList.remove(...processClassNames(...tokens));
-  const elementGetAttribute = <E extends Element>(qualifiedName: string, valueConsumer: (value: string) => void): (e: E) => void => e => valueConsumer(e.getAttribute(qualifiedName));
-  const elementSetAttribute = <E extends Element>(qualifiedName: string, value: string): (e: E) => void => e => e.setAttribute(qualifiedName, value);
+  const elementAddClass = <E extends Element>(...tokens: string[]): QuickAction<E> => chainAction(e => e.classList.add(...processClassNames(...tokens)));
+  const elementRemoveClass = <E extends Element>(...tokens: string[]): QuickAction<E> => chainAction(e => e.classList.remove(...processClassNames(...tokens)));
+  const elementGetAttribute = <E extends Element>(qualifiedName: string, valueConsumer: (value: string) => void): QuickAction<E> => chainAction(e => valueConsumer(e.getAttribute(qualifiedName)));
+  const elementSetAttribute = <E extends Element>(qualifiedName: string, value: string): QuickAction<E> => chainAction(e => e.setAttribute(qualifiedName, value));
   const elementProperty = (() => {
     const func = () => () => void (0);
     // @ts-ignore
@@ -755,5 +852,5 @@
   qeProperties.p = elementProperty;
   qeProperties.prop = elementProperty;
   qeProperties.property = elementProperty;
-  qeProperties.null = nullFunction;
+  qeProperties.null = chainAction(nullFunction);
 })();
